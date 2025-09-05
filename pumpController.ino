@@ -229,8 +229,8 @@ void setup() {
   Serial.begin(9600);
   
   // Добавление насосов в контроллер
-  pumpController.addPump(SoilSensor(A0, 800, 7000), 2, 2000);  // Насос 1
-  pumpController.addPump(SoilSensor(A1, 275, 420000), 3, 2000);   // Насос 2
+  pumpController.addPump(SoilSensor(A0, 800, 420000), 2, 2000);  // Насос 1
+  pumpController.addPump(SoilSensor(A1, 250, 16000), 3, 2000);   // Насос 2
   pumpController.addPump(SoilSensor(A2, 600, 700000), 4, 2000);  // Насос 3
   pumpController.addPump(SoilSensor(A3, 700, 7000000), 5, 2000);  // Насос 4
   
