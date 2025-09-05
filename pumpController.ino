@@ -17,10 +17,10 @@ struct ProcessStats {
   }
   
   String getStatsString() const {
-    return "(" + String(callCount) + 
-           ") " + String(minTime) + 
+    return "Вызовы: " + String(callCount) + 
+           ", Время (мин/макс/сред): " + String(minTime) + 
            "/" + String(maxTime) + 
-           "/" + String(getAverageTime());
+           "/" + String(getAverageTime()) + " мкс";
   }
 };
 
@@ -64,12 +64,27 @@ public:
     return moisture >= dryThreshold;
   }
 
+  // Метод для получения времени до следующей проверки
+  unsigned long getTimeToNextCheck() const {
+    unsigned long timeSinceLastCheck = millis() - lastCheckTime;
+    if (timeSinceLastCheck >= checkInterval) {
+      return 0; // Уже пора проверять
+    }
+    return checkInterval - timeSinceLastCheck;
+  }
+
   // Метод для получения информации о датчике
   String getInfo(int moisture, int getPumpPin) {
+    unsigned long timeToNextCheck = getTimeToNextCheck();
+    int difference = moisture - dryThreshold;
+    String status = difference >= 0 ? "НУЖЕН ПОЛИВ" : "НОРМА";
+    
     return String(millis() /1000) + " сек. - Датчик " + String(soilPin) + 
            "(p="+ String(getPumpPin)+"): влажность=" + String(moisture) + 
-           "(" + String(dryThreshold) +
-           ")" + String(moisture - dryThreshold) +
+           " | Порог: " + String(dryThreshold) +
+           " | Разница: " + String(difference) +
+           " | Статус: " + status +
+           " | До проверки: " + String(timeToNextCheck / 1000) + " сек." +
            " | " + globalProcessStats.getStatsString() +
            " | RAM: " + String(getFreeMemory()) + " байт";
   }
@@ -168,10 +183,11 @@ private:
   Pump** pumps;           // Массив указателей на насосы
   int pumpCount;          // Количество насосов
   int maxPumps;           // Максимальное количество насосов
+  unsigned long lastPrintTime; // Время последнего вывода информации
 
 public:
   // Конструктор
-  PumpController(int maxPumps = 10) : pumpCount(0), maxPumps(maxPumps) {
+  PumpController(int maxPumps = 10) : pumpCount(0), maxPumps(maxPumps), lastPrintTime(0) {
     pumps = new Pump*[maxPumps];
     for (int i = 0; i < maxPumps; i++) {
       pumps[i] = nullptr;
@@ -209,11 +225,64 @@ public:
     Serial.println("Свободная память: " + String(getFreeMemory()) + " байт");
   }
 
+  // Метод для получения насоса по индексу
+  Pump* getPump(int index) {
+    if (index >= 0 && index < pumpCount) {
+      return pumps[index];
+    }
+    return nullptr;
+  }
+
+// Метод для вывода информации о всех датчиках
+void printAllSensorsInfo() {
+  Serial.println("Время работы: " + String(millis() / 1000) + " сек.");
+  
+  // Шапка с названиями полей
+  Serial.println("Датчик  Насос  Влажность  Порог  Разница  Статус       До проверки");
+  Serial.println("-------------------------------------------------------------------");
+  
+  for (int i = 0; i < pumpCount; i++) {
+    Pump* pump = pumps[i];
+    SoilSensor sensor = pump->getSensor();
+    
+    int moisture = analogRead(sensor.getSoilPin());
+    int difference = moisture - sensor.getDryThreshold();
+    unsigned long timeToNextCheck = sensor.getTimeToNextCheck();
+    String status = difference >= 0 ? "НУЖЕН ПОЛИВ" : "НОРМА";
+    
+    // Форматированный вывод с фиксированной шириной полей
+    char buffer[100];
+    snprintf(buffer, sizeof(buffer), "A%-6d D%-5d %-10d %-6d %-8d %-12s %d сек.",
+             sensor.getSoilPin() - A0,
+             pump->getPumpPin(),
+             moisture,
+             sensor.getDryThreshold(),
+             difference,
+             status.c_str(),
+             timeToNextCheck / 1000);
+    
+    Serial.println(buffer);
+  }
+  
+  Serial.println("Статистика: " + globalProcessStats.getStatsString());
+  Serial.println("Свободная RAM: " + String(getFreeMemory()) + " байт");
+}
+
   // Метод process для loop
   void process() {
+    // Выводим информацию о датчиках каждые 5 секунд
+    if (millis() - lastPrintTime >= 7000) {
+      printAllSensorsInfo();
+      lastPrintTime = millis();
+    }
+    
+    // Обрабатываем все насосы
     for (int i = 0; i < pumpCount; i++) {
       pumps[i]->process();
     }
+    
+    // Небольшая задержка для стабильности
+    delay(10);
   }
 
   // Геттеры
@@ -229,8 +298,8 @@ void setup() {
   Serial.begin(9600);
   
   // Добавление насосов в контроллер
-  pumpController.addPump(SoilSensor(A0, 800, 7000), 2, 2000);  // Насос 1
-  pumpController.addPump(SoilSensor(A1, 275, 420000), 3, 2000);   // Насос 2
+  pumpController.addPump(SoilSensor(A0, 800, 420000), 2, 2000);  // Насос 1
+  pumpController.addPump(SoilSensor(A1, 245, 16000), 3, 2000);   // Насос 2
   pumpController.addPump(SoilSensor(A2, 600, 700000), 4, 2000);  // Насос 3
   pumpController.addPump(SoilSensor(A3, 700, 7000000), 5, 2000);  // Насос 4
   
