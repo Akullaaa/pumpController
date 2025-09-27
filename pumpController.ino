@@ -5,6 +5,7 @@ struct ProcessStats {
   unsigned long minTime = 0xFFFFFFFF; // Максимальное значение unsigned long
   unsigned long maxTime = 0;
   
+  // Метод для обновления статистики
   void update(unsigned long executionTime) {
     callCount++;
     totalTime += executionTime;
@@ -12,10 +13,12 @@ struct ProcessStats {
     if (executionTime > maxTime) maxTime = executionTime;
   }
   
+  // Метод для вычисления среднего времени
   unsigned long getAverageTime() const {
     return callCount > 0 ? totalTime / callCount : 0;
   }
   
+  // Метод для формирования строки со статистикой
   String getStatsString() const {
     return "(" + String(callCount) + 
            ") " + String(minTime) + 
@@ -34,29 +37,36 @@ int getFreeMemory() {
 // Глобальная статистика для всех насосов
 ProcessStats globalProcessStats;
 
-// Класс для датчика влажности
+// Класс для датчика сухости
 class SoilSensor {
 private:
-  int soilPin;              // Пин датчика влажности
+  int soilPin;              // Пин датчика сухости
   int dryThreshold;         // Порог сухости
   unsigned long checkInterval; // Интервал проверки
   unsigned long lastCheckTime; // Время последней проверки
+  int lastMoistureValue;    // Последнее измеренное значение сухости
 
 public:
   // Конструктор
   SoilSensor(int soilPin, int dryThreshold, unsigned long checkInterval)
-    : soilPin(soilPin), dryThreshold(dryThreshold), checkInterval(checkInterval), lastCheckTime(0) {}
+    : soilPin(soilPin), dryThreshold(dryThreshold), checkInterval(checkInterval), lastCheckTime(0), lastMoistureValue(0) {
+      // Инициализируем lastMoistureValue сразу при создании объекта
+      pinMode(soilPin, INPUT); // Важно настроить пин как вход
+      lastMoistureValue = readMoisture();
+    }
 
   // Метод для проверки, пришло ли время для следующей проверки
   bool isCheckTime() {
     return millis() - lastCheckTime >= checkInterval;
   }
 
-  // Метод для чтения влажности
+  // Метод для чтения сухости
   int readMoisture() {
     // Обновляем время последней проверки
     lastCheckTime = millis();
-    return analogRead(soilPin);
+    lastMoistureValue = analogRead(soilPin); // Сохраняем последнее значение
+    //Serial.println("ч=: " + String(lastMoistureValue));
+    return lastMoistureValue;
   }
 
   // Метод для проверки необходимости полива
@@ -67,7 +77,7 @@ public:
   // Метод для получения информации о датчике
   String getInfo(int moisture, int getPumpPin) {
     return String(millis() /1000) + " сек. - Датчик " + String(soilPin) + 
-           "(p="+ String(getPumpPin)+"): влажность=" + String(moisture) + 
+           "(p="+ String(getPumpPin)+"): сухость=" + String(moisture) + 
            "(" + String(dryThreshold) +
            ")" + String(moisture - dryThreshold) +
            " | " + globalProcessStats.getStatsString() +
@@ -79,6 +89,7 @@ public:
   int getDryThreshold() const { return dryThreshold; }
   unsigned long getCheckInterval() const { return checkInterval; }
   unsigned long getLastCheckTime() const { return lastCheckTime; }
+  int getLastMoistureValue() const { return lastMoistureValue; } // Новый геттер
 };
 
 // Класс для управления насосом
@@ -89,12 +100,13 @@ private:
   unsigned long pumpDuration; // Длительность работы насоса
   bool isPumping;           // Флаг активности насоса
   unsigned long pumpStartTime; // Время начала работы насоса
+  unsigned long lastPumpOffTime;
 
 public:
   // Конструктор принимает временный объект SoilSensor
   Pump(SoilSensor sensor, int pumpPin, unsigned long pumpDuration)
-    : sensor(sensor), pumpPin(pumpPin), pumpDuration(pumpDuration), 
-      isPumping(false), pumpStartTime(0) {}
+    : sensor(sensor), pumpPin(pumpPin), pumpDuration(pumpDuration),
+      isPumping(false), pumpStartTime(0), lastPumpOffTime(0) {}
 
   // Метод для настройки пина насоса
   void setupPin() {
@@ -118,7 +130,10 @@ public:
   void stopPumping() {
     digitalWrite(pumpPin, HIGH); // Инвертированная логика: HIGH выключает насос
     isPumping = false;
-    Serial.println("Насос на пине " + String(pumpPin) + " выключен");
+    Serial.println("Насос на пине " + String(pumpPin) + " выключен. Следующая проверка через "
+      + String(getSensor().getCheckInterval() / 1000)
+      + " сек. | Последняя сухость: " + String(getSensor().getLastMoistureValue())
+      + " | Порог сухости: " + String(getSensor().getDryThreshold())); 
   }
 
   // Основной метод обработки насоса
@@ -160,6 +175,7 @@ public:
   unsigned long getPumpDuration() const { return pumpDuration; }
   SoilSensor getSensor() const { return sensor; }
   int getPumpPin() const { return pumpPin; }
+  unsigned long getLastPumpOffTime() const { return lastPumpOffTime; } // Новый геттер
 };
 
 // Класс контроллера насосов
@@ -229,8 +245,8 @@ void setup() {
   Serial.begin(9600);
   
   // Добавление насосов в контроллер
-  // pumpController.addPump(SoilSensor(A0, 7, 8000), 2, 4000);  // Насос 1
-  pumpController.addPump(SoilSensor(A1, 300, 420000), 3, 25000);   // Насос 2
+  pumpController.addPump(SoilSensor(A0, 7, 80000), 2, 4000);  // Насос 1
+  pumpController.addPump(SoilSensor(A1, 300, 3600000), 3, 50000);   // Насос 2
   pumpController.addPump(SoilSensor(A2, 900, 700000), 4, 2000);  // Насос 3
   pumpController.addPump(SoilSensor(A3, 700, 7000000), 5, 2000);  // Насос 4
   
